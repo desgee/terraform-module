@@ -1,0 +1,39 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraform/
+.terraform.tfstate
+.terraform.tfstate.backup
+terraform.tfplan
+terraform.tfplan.*
+
+# Local environment files
+*.backup
+*.swp
+*.bak
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.iml
+
+# Logs
+*.log
+
+# Ignore secrets files
+*.pem
+*.key
+*.crt
+*.pfx
