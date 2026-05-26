@@ -1,9 +1,10 @@
-# live/dev/services/webserver-cluster/main.tf
+# dev/services/webserver-cluster/main.tf
 
 module "webserver_cluster" {
   source = "../../../modules/services/webserver-cluster"
 
   cluster_name  = "webservers-dev"
+  environment   = "dev"
   instance_type = "t2.micro"
   min_size      = 2
   max_size      = 4

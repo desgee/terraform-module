@@ -1,11 +1,14 @@
 data "aws_vpc" "default" {
+  count   = var.vpc_id == null ? 1 : 0
   default = true
 }
 
 data "aws_subnets" "default" {
+  count = var.subnet_ids == null ? 1 : 0
+
   filter {
     name   = "vpc-id"
-    values = [data.aws_vpc.default.id]
+    values = [local.vpc_id]
   }
 }
 
@@ -19,9 +22,21 @@ data "aws_ami" "amazon_linux_2" {
   }
 }
 
+locals {
+  vpc_id     = var.vpc_id != null ? var.vpc_id : data.aws_vpc.default[0].id
+  subnet_ids = var.subnet_ids != null ? var.subnet_ids : data.aws_subnets.default[0].ids
+  tags = {
+    Name        = var.cluster_name
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+  }
+}
+
 # Security group for EC2 instances – only accepts traffic from the ALB
 resource "aws_security_group" "instance" {
-  name = "${var.cluster_name}-instance"
+  name        = "${var.cluster_name}-instance"
+  description = "Allow traffic from the application load balancer"
+  vpc_id      = local.vpc_id
 
   ingress {
     from_port       = var.server_port
@@ -36,11 +51,15 @@ resource "aws_security_group" "instance" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+
+  tags = local.tags
 }
 
 # Security group for the ALB – accepts public HTTP traffic
 resource "aws_security_group" "alb" {
-  name = "${var.cluster_name}-alb"
+  name        = "${var.cluster_name}-alb"
+  description = "Allow public HTTP traffic to the application load balancer"
+  vpc_id      = local.vpc_id
 
   ingress {
     from_port   = 80
@@ -55,6 +74,8 @@ resource "aws_security_group" "alb" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+
+  tags = local.tags
 }
 
 resource "aws_launch_template" "example" {
@@ -74,26 +95,39 @@ resource "aws_launch_template" "example" {
   lifecycle {
     create_before_destroy = true
   }
+
+  tag_specifications {
+    resource_type = "instance"
+    tags          = local.tags
+  }
 }
 
 resource "aws_autoscaling_group" "example" {
-  vpc_zone_identifier = data.aws_subnets.default.ids
+  vpc_zone_identifier = local.subnet_ids
 
   launch_template {
     id      = aws_launch_template.example.id
     version = "$Latest"
   }
 
-  min_size         = var.min_size
-  max_size         = var.max_size
-  desired_capacity = var.min_size
+  min_size                 = var.min_size
+  max_size                 = var.max_size
+  desired_capacity         = var.min_size
+  health_check_type        = "ELB"
+  health_check_grace_period = 300
+  default_cooldown         = 300
 
   target_group_arns = [aws_lb_target_group.asg.arn]
-  health_check_type = "ELB"
 
   tag {
     key                 = "Name"
     value               = var.cluster_name
+    propagate_at_launch = true
+  }
+
+  tag {
+    key                 = "Environment"
+    value               = var.environment
     propagate_at_launch = true
   }
 }
@@ -101,25 +135,29 @@ resource "aws_autoscaling_group" "example" {
 resource "aws_lb" "example" {
   name               = "${var.cluster_name}-alb"
   load_balancer_type = "application"
-  subnets            = data.aws_subnets.default.ids
+  subnets            = local.subnet_ids
   security_groups    = [aws_security_group.alb.id]
+
+  tags = local.tags
 }
 
 resource "aws_lb_target_group" "asg" {
   name     = "${var.cluster_name}-tg"
   port     = var.server_port
   protocol = "HTTP"
-  vpc_id   = data.aws_vpc.default.id
+  vpc_id   = local.vpc_id
 
   health_check {
-    path                = "/"
+    path                = var.health_check_path
     protocol            = "HTTP"
     matcher             = "200"
     interval            = 15
     timeout             = 3
-    healthy_threshold   = 2
+    healthy_threshold   = 3
     unhealthy_threshold = 2
   }
+
+  tags = local.tags
 }
 
 resource "aws_lb_listener" "http" {
